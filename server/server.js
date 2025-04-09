@@ -1,56 +1,68 @@
-// server/server.js
-
-import express from "express";
-import mongoose from "mongoose";
-import cors from "cors";
-import dotenv from "dotenv";
-import { Server } from "socket.io";
-import http from "http"; // needed to create HTTP server
-
-dotenv.config();
+const express = require('express');
+const http = require('http');
+const cors = require('cors');
+const mongoose = require('mongoose');
+const { Server } = require('socket.io');
+require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 5000;
-
-// Middleware
-app.use(cors());
-app.use(express.json());
-
-// MongoDB connection
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ MongoDB connected"))
-  .catch((err) => console.log("❌ Mongo error:", err));
-
-// Routes (you can add later)
-app.get("/", (req, res) => {
-  res.send("API is running");
-});
-
-// Create HTTP server
-const httpServer = http.createServer(app);
-
-// Socket.IO setup
-const io = new Server(httpServer, {
+const server = http.createServer(app);
+const io = new Server(server, {
   cors: {
-    origin: "http://localhost:3000", // frontend dev URL
+    origin: "http://localhost:3000",
     methods: ["GET", "POST"]
   }
 });
 
+app.use(cors());
+app.use(express.json());
+
+// MongoDB Connection
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log("✅ MongoDB connected"))
+  .catch(err => console.error(err));
+
+// Alert model
+const Alert = mongoose.model("Alert", new mongoose.Schema({
+  name: String,
+  location: String,
+  type: String,
+  contact: String,
+  message: String,
+  timestamp: { type: Date, default: Date.now }
+}));
+
+app.get('/', (req, res) => {
+  res.send('Welcome to the backend server!');
+});
+
+
+// API Routes
+app.get('/api/alerts', async (req, res) => {
+  const alerts = await Alert.find().sort({ timestamp: -1 });
+  res.json(alerts);
+});
+
+app.post('/api/alerts', async (req, res) => {
+  const newAlert = new Alert(req.body);
+  await newAlert.save();
+  res.json(newAlert);
+  io.emit("receive_alert", newAlert);
+});
+
+// Socket.io
 io.on("connection", (socket) => {
-  console.log("⚡ Client connected:", socket.id);
+  console.log("🟢 New client connected");
 
   socket.on("sendAlert", (data) => {
-    console.log("🚨 Alert received:", data);
-    io.emit("receiveAlert", data); // broadcast to others
+    console.log("📥 Received alert from client:", data);
+    io.emit("receive_alert", data);
   });
 
   socket.on("disconnect", () => {
-    console.log("❌ Client disconnected");
+    console.log("🔴 Client disconnected");
   });
 });
 
-// Start the server
-httpServer.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
